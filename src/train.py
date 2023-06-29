@@ -50,25 +50,18 @@ cfg.DATASETS.TRAIN = ("dataset_train",)
 cfg.DATASETS.TEST = ("dataset_validate",)
 cfg.TEST.EVAL_PERIOD = 100
 cfg.DATALOADER.NUM_WORKERS = 2
-cfg.SOLVER.IMS_PER_BATCH = 2  # This is the real "batch size" commonly known to deep learning people
+cfg.SOLVER.IMS_PER_BATCH = 3  # This is the real "batch size" commonly known to deep learning people
 cfg.SOLVER.BASE_LR = 0.000125  # pick a good LR
-cfg.SOLVER.MAX_ITER = 3000    # 300 iterations seems good enough for this toy dataset; you will need to train longer for a practical dataset
+cfg.SOLVER.MAX_ITER = 4000    # 300 iterations seems good enough for this toy dataset; you will need to train longer for a practical dataset
 cfg.SOLVER.STEPS = []        # do not decay learning rate
-cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 4096   # The "RoIHead batch size". 128 is faster, and good enough for this toy dataset (default: 512)
+cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 4000   # The "RoIHead batch size". 128 is faster, and good enough for this toy dataset (default: 512)
 cfg.MODEL.ROI_HEADS.NUM_CLASSES = len(roof_metadata.thing_classes)  # only has one class (ballon).
-
-cfg.OUTPUT_DIR_VALIDATION_SET_EVALUATION = os.path.join(
-        cfg.OUTPUT_DIR, "validation-set-evaluation")
-cfg.OUTPUT_DIR_TEST_SET_EVALUATION = os.path.join(
-        cfg.OUTPUT_DIR, "test-set-evaluation")
 
 shutil.rmtree(cfg.OUTPUT_DIR, ignore_errors=True)
 os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
-os.makedirs(cfg.OUTPUT_DIR_VALIDATION_SET_EVALUATION, exist_ok=True)
-os.makedirs(cfg.OUTPUT_DIR_TEST_SET_EVALUATION, exist_ok=True)
 
 trainer = Trainer(cfg)
-trainer.register_hooks(hooks=[MLflowHook(cfg, upload_model=True)])
+trainer.register_hooks(hooks=[MLflowHook(cfg, upload_artifacts=True)])
 trainer.resume_or_load(resume=False)
 trainer.train()
 
@@ -76,15 +69,18 @@ trainer.train()
 cfg.MODEL.WEIGHTS = os.path.join(cfg.OUTPUT_DIR, "model_final.pth") 
 predictor = DefaultPredictor(cfg)
 
-evaluator = COCOEvaluator("dataset_validate", output_dir=cfg.OUTPUT_DIR_TEST_SET_EVALUATION)
+evaluator_folder = os.path.join(cfg.OUTPUT_DIR, "validation-evaluation")
+os.makedirs(evaluator_folder, exist_ok=True)
+
+evaluator = COCOEvaluator("dataset_validate", output_dir=evaluator_folder)
 val_loader = build_detection_test_loader(cfg, "dataset_validate")
 evaluation_results = inference_on_dataset(predictor.model, val_loader, evaluator)
 
 for k, v in evaluation_results["bbox"].items():
     mlflow.log_metric(f"Test Set {k}", v, step=0)
 
-mlflow.log_artifacts(cfg.OUTPUT_DIR_TEST_SET_EVALUATION, "test-set-evaluation")
-mlflow.log_text(str(evaluation_results), "test-set-evaluation/coco-metrics.txt")
+mlflow.log_artifacts(evaluator_folder, "validation-evaluation")
+mlflow.log_text(str(evaluation_results), "validation-evaluation/coco-metrics.txt")
 
 # end run
 mlflow.end_run()

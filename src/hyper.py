@@ -25,7 +25,7 @@ from mlflow.entities import Run
 from mlflow.tracking import MlflowClient
 
 # import own modules
-from util import MLflowHook
+from util import MLflowHook, Trainer
 
 # register to DatasetCatalog
 register_coco_instances("dataset_train", {}, "dataset/train/result.json", "dataset/train/")
@@ -38,12 +38,17 @@ load_coco_json("dataset/validate/result.json", "dataset/validate/", "dataset_val
 # get metadata
 roof_metadata = MetadataCatalog.get("dataset_train")
 
+# setup mlflow enpoint
+mlflow.set_tracking_uri("https://mlflow.ingrim4.me")
+mlflow.set_experiment("big-data-prak-maurice")
+
 # setup default config
 cfg = get_cfg()
 cfg.merge_from_file(model_zoo.get_config_file("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"))
 cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")  # Let training initialize from model zoo
 cfg.DATASETS.TRAIN = ("dataset_train",)
-cfg.DATASETS.TEST = ()
+cfg.DATASETS.TEST = ("dataset_validate",)
+cfg.TEST.EVAL_PERIOD = 100
 cfg.DATALOADER.NUM_WORKERS = 2
 cfg.SOLVER.IMS_PER_BATCH = 2  # This is the real "batch size" commonly known to deep learning people
 cfg.SOLVER.BASE_LR = 0.00025  # pick a good LR
@@ -68,7 +73,7 @@ def train(parameters: dict[str, any], cfg: CfgNode):
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
 
     # train model
-    trainer = DefaultTrainer(cfg)
+    trainer = Trainer(cfg)
     trainer.register_hooks(hooks=[MLflowHook(cfg, nested_run=True)])
     trainer.resume_or_load(resume=False)
     trainer.train()
@@ -95,8 +100,10 @@ def log_best(run: Run, metric: str):
     mlflow.set_tag("best_run", best_run.info.run_id)
     mlflow.log_metric(f"best_{metric}", best_run.data.metrics[metric])
 
-# Number of hyperopt evaluations
-MAX_EVALS = 4
+# Number of start hyperopt evaluations
+MAX_EVALS = 16
+# Number of new hyperopt evaluations
+INC_MAX_EVALS = 16
 # Metric to optimize
 METRIC = "total_loss"
 # Number of experiments to run at once
@@ -104,21 +111,34 @@ PARALLELISM = 1
 
 space = {
     'IMS_PER_BATCH': hyperopt.hp.uniformint('IMS_PER_BATCH', 1, 2),
-    #'IMS_PER_BATCH': hyperopt.hp.uniformint('IMS_PER_BATCH', 1, 4),
+    #'IMS_PER_BATCH': hyperopt.hp.uniformint('IMS_PER_BATCH', 1, 3),
     'BASE_LR': hyperopt.hp.uniform('BASE_LR', 1e-5, 1e-3),
     'MAX_ITER': hyperopt.hp.uniformint('MAX_ITER', 100, 512),
-    #'MAX_ITER': hyperopt.hp.uniformint('MAX_ITER', 1024, 4096),
+    #'MAX_ITER': hyperopt.hp.uniformint('MAX_ITER', 100, 4000),
     'BATCH_SIZE_PER_IMAGE': hyperopt.hp.uniformint('BATCH_SIZE_PER_IMAGE', 64, 512)
-    #'BATCH_SIZE_PER_IMAGE': hyperopt.hp.uniformint('BATCH_SIZE_PER_IMAGE', 512, 3000)
+    #'BATCH_SIZE_PER_IMAGE': hyperopt.hp.uniformint('BATCH_SIZE_PER_IMAGE', 100, 4000)
 }
 
-trials = hyperopt.Trials()
+def restore_trials():
+    global MAX_EVALS
+    try:  # try to load an already saved trials object, and increase the max
+        with open("trials.hyperopt", "rb") as f:
+            trials = pickle.load(f)
+            print("Found saved Trials! Loading...")
+            MAX_EVALS = len(trials.trials) + INC_MAX_EVALS
+            print("Rerunning from {} trials to {} (+{}) trials".format(len(trials.trials), MAX_EVALS, INC_MAX_EVALS))
+            return trials
+    except:  # create a new trials object and start searching
+        return hyperopt.Trials()
+
+trials = restore_trials() # hyperopt.Trials()
 
 def save_trials():
-    pickle.dump(trials, open("trials.p", "wb"))
+    with open("trials.hyperopt", "wb") as f:
+        pickle.dump(trials, f)
 atexit.register(save_trials)
 
-with mlflow.start_run() as run:
+with mlflow.start_run(run_id='95d1db3a795c48f9b5e2a3e8b0046185') as run:
     best = hyperopt.fmin(
         fn=build_train_objective(METRIC),
         space=space,

@@ -86,6 +86,6 @@ class Trainer(DefaultTrainer):
     def build_evaluator(cls, cfg, dataset_name, output_folder=None):
         if output_folder is None:
             output_folder = os.path.join(cfg.OUTPUT_DIR, "test-evaluation")
-            os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
+            os.makedirs(output_folder, exist_ok=True)
 
         return COCOEvaluator(dataset_name, distributed=False, output_dir=output_folder)
