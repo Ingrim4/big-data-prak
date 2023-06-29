@@ -16,91 +16,35 @@ print("cores: ", os.cpu_count())
 
 # import some common detectron2 utilities
 from detectron2 import model_zoo
-from detectron2.engine import HookBase, DefaultTrainer, DefaultPredictor
+from detectron2.engine import DefaultTrainer, DefaultPredictor, default_argument_parser, default_setup, hooks, launch
+from detectron2.evaluation import COCOEvaluator, inference_on_dataset
 from detectron2.config import get_cfg, CfgNode
-from detectron2.data import MetadataCatalog, DatasetCatalog
+from detectron2.data import MetadataCatalog, DatasetCatalog, build_detection_test_loader
 from detectron2.data.datasets import load_coco_json, register_coco_instances
 
 # import some common mlflow utilities
-from mlflow.entities import Metric, Run
+from mlflow.entities import Run
 from mlflow.tracking import MlflowClient
-from mlflow.utils.time_utils import get_current_time_millis
 
-# define detectron2 hook for mlflow auto logging
-class MLflowHook(HookBase):
-    """
-    A custom hook class that logs artifacts, metrics, and parameters to MLflow.
-    """
-
-    def __init__(self, cfg: CfgNode, nested_run: bool):
-        super().__init__()
-        self.cfg = cfg.clone()
-        self.nested_run = nested_run
-        self.metric_batch = []
-
-    @property
-    def run_id(self):
-        return self.active_run.info.run_id
-
-    def flush_metric_batch(self):
-        self.client.log_batch(run_id=self.run_id, metrics=self.metric_batch)
-        self.metric_batch.clear()
-
-    def log_metric(self, entry: Metric):
-        self.metric_batch.append(entry)
-        if len(self.metric_batch) > 512:
-            self.flush_metric_batch()
-
-    def before_train(self):
-        with torch.no_grad():
-            self.active_run = mlflow.start_run(nested=self.nested_run)
-            self.client = MlflowClient()
-
-            mlflow.log_params({ ('SOLVER.'+k): v for k, v in self.cfg.SOLVER.items() })
-            mlflow.log_params({ ('MODEL.ROI_HEADS.'+k): v for k, v in self.cfg.MODEL.ROI_HEADS.items() })
-
-    def after_step(self):
-        with torch.no_grad():
-            latest_metrics = self.trainer.storage.latest()
-            for k, v in latest_metrics.items():
-                self.log_metric(Metric(
-                    key=k,
-                    value=v[0],
-                    step=v[1],
-                    timestamp=get_current_time_millis()
-                ))
-
-    def after_train(self):
-        with torch.no_grad():
-            if len(self.metric_batch) > 0:
-                self.flush_metric_batch()
-            with open(os.path.join(self.cfg.OUTPUT_DIR, "model-config.yaml"), "w") as f:
-                f.write(self.cfg.dump())
-
-            # delete model file cause my server is tiny
-            model_path = os.path.join(cfg.OUTPUT_DIR, "model_final.pth")
-            if (os.path.exists(model_path)):
-                os.remove(model_path)
-
-            mlflow.log_artifacts(self.cfg.OUTPUT_DIR)
-            mlflow.end_run()
+# import own modules
+from util.mlflow_hook import MLflowHook
 
 # register to DatasetCatalog
-register_coco_instances("train_dataset", {}, "train_dataset/result.json", "train_dataset/")
+register_coco_instances("dataset_train", {}, "dataset/train/result.json", "dataset/train/")
+register_coco_instances("dataset_validate", {}, "dataset/validate/result.json", "dataset/validate/")
 
-# load dataset and metadata
-dataset_dicts = load_coco_json("train_dataset/result.json", "train_dataset/", "train_dataset")
-roof_metadata = MetadataCatalog.get("train_dataset")
+# load metadata
+load_coco_json("dataset/train/result.json", "dataset/train/", "dataset_train")
+load_coco_json("dataset/validate/result.json", "dataset/validate/", "dataset_validate")
 
-# setup mlflow enpoint
-mlflow.set_tracking_uri("https://mlflow.ingrim4.me")
-mlflow.set_experiment("big-data-prak-maurice")
+# get metadata
+roof_metadata = MetadataCatalog.get("dataset_train")
 
 # setup default config
 cfg = get_cfg()
 cfg.merge_from_file(model_zoo.get_config_file("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"))
 cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")  # Let training initialize from model zoo
-cfg.DATASETS.TRAIN = ("train_dataset",)
+cfg.DATASETS.TRAIN = ("dataset_train",)
 cfg.DATASETS.TEST = ()
 cfg.DATALOADER.NUM_WORKERS = 4
 cfg.SOLVER.IMS_PER_BATCH = 2  # This is the real "batch size" commonly known to deep learning people
