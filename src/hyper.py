@@ -46,8 +46,8 @@ mlflow.set_experiment("big-data-prak-maurice")
 cfg = get_cfg()
 cfg.merge_from_file(model_zoo.get_config_file("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"))
 cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")  # Let training initialize from model zoo
-cfg.DATASETS.TRAIN = ("dataset_train",)
-cfg.DATASETS.TEST = ("dataset_validate",)
+cfg.DATASETS.TRAIN = ("dataset_validate",)
+cfg.DATASETS.TEST = ("dataset_train",)
 cfg.TEST.EVAL_PERIOD = 100
 cfg.DATALOADER.NUM_WORKERS = 2
 cfg.SOLVER.IMS_PER_BATCH = 2  # This is the real "batch size" commonly known to deep learning people
@@ -106,8 +106,6 @@ MAX_EVALS = 16
 INC_MAX_EVALS = 16
 # Metric to optimize
 METRIC = "total_loss"
-# Number of experiments to run at once
-PARALLELISM = 1
 
 space = {
     'IMS_PER_BATCH': hyperopt.hp.uniformint('IMS_PER_BATCH', 1, 2),
@@ -138,7 +136,7 @@ def save_trials():
         pickle.dump(trials, f)
 atexit.register(save_trials)
 
-with mlflow.start_run(run_id='95d1db3a795c48f9b5e2a3e8b0046185') as run:
+with mlflow.start_run(run_id='b022bd0a74d7474b91a90fca5aa7c518') as run:
     best = hyperopt.fmin(
         fn=build_train_objective(METRIC),
         space=space,

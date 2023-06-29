@@ -5,7 +5,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --partition=clara
 #SBATCH --time=01:00:00
-#SBATCH --job-name=roof_train_test
+#SBATCH --job-name=bdp-roof-hyper
 #SBATCH -o logs/%x-%j/out.log
 #SBATCH -e logs/%x-%j/err.log
 

@@ -4,8 +4,8 @@
 #SBATCH --mem=16G
 #SBATCH --gres=gpu:1
 #SBATCH --partition=clara
-#SBATCH --time=00:20:00
-#SBATCH --job-name=roof_train_test
+#SBATCH --time=02:00:00
+#SBATCH --job-name=bdp-roof-train
 #SBATCH -o logs/%x-%j/out.log
 #SBATCH -e logs/%x-%j/err.log
 

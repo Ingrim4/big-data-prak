@@ -50,11 +50,11 @@ cfg.DATASETS.TRAIN = ("dataset_train",)
 cfg.DATASETS.TEST = ("dataset_validate",)
 cfg.TEST.EVAL_PERIOD = 100
 cfg.DATALOADER.NUM_WORKERS = 2
-cfg.SOLVER.IMS_PER_BATCH = 3  # This is the real "batch size" commonly known to deep learning people
-cfg.SOLVER.BASE_LR = 0.000125  # pick a good LR
-cfg.SOLVER.MAX_ITER = 4000    # 300 iterations seems good enough for this toy dataset; you will need to train longer for a practical dataset
+cfg.SOLVER.IMS_PER_BATCH = 4  # This is the real "batch size" commonly known to deep learning people
+cfg.SOLVER.BASE_LR = 0.0000625  # pick a good LR
+cfg.SOLVER.MAX_ITER = 5000    # 300 iterations seems good enough for this toy dataset; you will need to train longer for a practical dataset
 cfg.SOLVER.STEPS = []        # do not decay learning rate
-cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 4000   # The "RoIHead batch size". 128 is faster, and good enough for this toy dataset (default: 512)
+cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 2000   # The "RoIHead batch size". 128 is faster, and good enough for this toy dataset (default: 512)
 cfg.MODEL.ROI_HEADS.NUM_CLASSES = len(roof_metadata.thing_classes)  # only has one class (ballon).
 
 shutil.rmtree(cfg.OUTPUT_DIR, ignore_errors=True)
@@ -77,7 +77,7 @@ val_loader = build_detection_test_loader(cfg, "dataset_validate")
 evaluation_results = inference_on_dataset(predictor.model, val_loader, evaluator)
 
 for k, v in evaluation_results["bbox"].items():
-    mlflow.log_metric(f"Test Set {k}", v, step=0)
+    mlflow.log_metric(f"validation/{k}", v, step=0)
 
 mlflow.log_artifacts(evaluator_folder, "validation-evaluation")
 mlflow.log_text(str(evaluation_results), "validation-evaluation/coco-metrics.txt")
