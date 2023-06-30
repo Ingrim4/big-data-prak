@@ -14,11 +14,12 @@ class MLflowHook(HookBase):
     A custom hook class that logs artifacts, metrics, and parameters to MLflow.
     """
 
-    def __init__(self, cfg: CfgNode, nested_run: bool = False, upload_artifacts: bool = False):
+    def __init__(self, cfg: CfgNode, nested_run: bool = False, upload_artifacts: bool = False, end_run: bool = False):
         super().__init__()
         self.cfg = cfg.clone()
         self.nested_run = nested_run
         self.upload_artifacts = upload_artifacts
+        self.end_run = end_run
         self.metric_batch: list[Metric] = []
 
     @property
@@ -74,7 +75,7 @@ class MLflowHook(HookBase):
             if (self.upload_artifacts):
                 mlflow.log_artifacts(self.cfg.OUTPUT_DIR)
 
-            if (self.nested_run):
+            if (self.end_run):
                 mlflow.end_run()
 
 class Trainer(DefaultTrainer):

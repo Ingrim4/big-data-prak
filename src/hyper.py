@@ -15,9 +15,10 @@ import os, shutil, pickle, atexit
 
 # import some common detectron2 utilities
 from detectron2 import model_zoo
-from detectron2.engine import DefaultTrainer
+from detectron2.engine import DefaultPredictor
+from detectron2.evaluation import COCOEvaluator, inference_on_dataset
 from detectron2.config import get_cfg, CfgNode
-from detectron2.data import MetadataCatalog
+from detectron2.data import MetadataCatalog, build_detection_test_loader
 from detectron2.data.datasets import load_coco_json, register_coco_instances
 
 # import some common mlflow utilities
@@ -40,14 +41,14 @@ roof_metadata = MetadataCatalog.get("dataset_train")
 
 # setup mlflow enpoint
 mlflow.set_tracking_uri("https://mlflow.ingrim4.me")
-mlflow.set_experiment("big-data-prak-maurice")
+mlflow.set_experiment("big-data-prak-hyperopt")
 
 # setup default config
 cfg = get_cfg()
 cfg.merge_from_file(model_zoo.get_config_file("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"))
 cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")  # Let training initialize from model zoo
-cfg.DATASETS.TRAIN = ("dataset_validate",)
-cfg.DATASETS.TEST = ("dataset_train",)
+cfg.DATASETS.TRAIN = ("dataset_train",)
+cfg.DATASETS.TEST = ("dataset_validate",)
 cfg.TEST.EVAL_PERIOD = 100
 cfg.DATALOADER.NUM_WORKERS = 2
 cfg.SOLVER.IMS_PER_BATCH = 2  # This is the real "batch size" commonly known to deep learning people
@@ -81,11 +82,34 @@ def train(parameters: dict[str, any], cfg: CfgNode):
     # return train metrics
     return trainer.storage.latest_with_smoothing_hint(window_size=10)
 
+def validate(cfg: CfgNode):
+    cfg = cfg.clone()
+    cfg.defrost()
+    cfg.MODEL.WEIGHTS = os.path.join(cfg.OUTPUT_DIR, "model_final.pth") 
+    cfg.freeze()
+
+    predictor = DefaultPredictor(cfg)
+
+    evaluator_folder = os.path.join(cfg.OUTPUT_DIR, "validation-evaluation")
+    os.makedirs(evaluator_folder, exist_ok=True)
+
+    evaluator = COCOEvaluator("dataset_validate", output_dir=evaluator_folder)
+    val_loader = build_detection_test_loader(cfg, "dataset_validate")
+    evaluation_results = inference_on_dataset(predictor.model, val_loader, evaluator)
+
+    for k, v in evaluation_results["bbox"].items():
+        mlflow.log_metric(f"validation/{k}", 100 - v, step=0)
+
+    mlflow.end_run()
+
+    return { f"validation/{k}": 100 - v for k, v in evaluation_results["bbox"].items() }
+
 def build_train_objective(metric: str):
     def train_func(parameters: dict[str, any]):
-        metrics = train(parameters, cfg)
-        print(metrics)
-        return { 'status': hyperopt.STATUS_OK, 'loss': metrics[metric][0] }
+        train_metrics = train(parameters, cfg)
+        validate_metrics = validate(cfg)
+        print(train_metrics, validate_metrics)
+        return { 'status': hyperopt.STATUS_OK, 'loss': validate_metrics[metric] }
     return train_func
 
 def log_best(run: Run, metric: str):
@@ -105,16 +129,18 @@ MAX_EVALS = 16
 # Number of new hyperopt evaluations
 INC_MAX_EVALS = 16
 # Metric to optimize
-METRIC = "total_loss"
+METRIC = "validation/AP"
+# restore run_id
+RUN_ID = None
 
 space = {
-    'IMS_PER_BATCH': hyperopt.hp.uniformint('IMS_PER_BATCH', 1, 2),
-    #'IMS_PER_BATCH': hyperopt.hp.uniformint('IMS_PER_BATCH', 1, 3),
+    #'IMS_PER_BATCH': hyperopt.hp.uniformint('IMS_PER_BATCH', 1, 2),
+    'IMS_PER_BATCH': hyperopt.hp.uniformint('IMS_PER_BATCH', 1, 4),
     'BASE_LR': hyperopt.hp.uniform('BASE_LR', 1e-5, 1e-3),
-    'MAX_ITER': hyperopt.hp.uniformint('MAX_ITER', 100, 512),
-    #'MAX_ITER': hyperopt.hp.uniformint('MAX_ITER', 100, 4000),
-    'BATCH_SIZE_PER_IMAGE': hyperopt.hp.uniformint('BATCH_SIZE_PER_IMAGE', 64, 512)
-    #'BATCH_SIZE_PER_IMAGE': hyperopt.hp.uniformint('BATCH_SIZE_PER_IMAGE', 100, 4000)
+    #'MAX_ITER': hyperopt.hp.uniformint('MAX_ITER', 100, 512),
+    'MAX_ITER': hyperopt.hp.uniformint('MAX_ITER', 256, 4096),
+    #'BATCH_SIZE_PER_IMAGE': hyperopt.hp.uniformint('BATCH_SIZE_PER_IMAGE', 64, 512)
+    'BATCH_SIZE_PER_IMAGE': hyperopt.hp.uniformint('BATCH_SIZE_PER_IMAGE', 256, 4096)
 }
 
 def restore_trials():
@@ -136,13 +162,14 @@ def save_trials():
         pickle.dump(trials, f)
 atexit.register(save_trials)
 
-with mlflow.start_run(run_id='b022bd0a74d7474b91a90fca5aa7c518') as run:
+with mlflow.start_run(run_id=RUN_ID) as run:
     best = hyperopt.fmin(
         fn=build_train_objective(METRIC),
         space=space,
         algo=hyperopt.tpe.suggest, # alternative hyperopt.rand.suggest
         max_evals=MAX_EVALS,
-        trials=trials
+        trials=trials,
+        show_progressbar=False
     )
     mlflow.set_tag("best_params", str(best))
     log_best(run, METRIC)

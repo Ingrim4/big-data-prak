@@ -40,7 +40,7 @@ roof_metadata = MetadataCatalog.get("dataset_train")
 
 # setup mlflow enpoint
 mlflow.set_tracking_uri("https://mlflow.ingrim4.me")
-mlflow.set_experiment("big-data-prak-maurice")
+mlflow.set_experiment("big-data-prak-train")
 
 # setup default config
 cfg = get_cfg()
@@ -77,7 +77,7 @@ val_loader = build_detection_test_loader(cfg, "dataset_validate")
 evaluation_results = inference_on_dataset(predictor.model, val_loader, evaluator)
 
 for k, v in evaluation_results["bbox"].items():
-    mlflow.log_metric(f"validation/{k}", v, step=0)
+    mlflow.log_metric(f"validation/{k}", 100 - v, step=0)
 
 mlflow.log_artifacts(evaluator_folder, "validation-evaluation")
 mlflow.log_text(str(evaluation_results), "validation-evaluation/coco-metrics.txt")
