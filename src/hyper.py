@@ -67,6 +67,7 @@ def train(parameters: dict[str, any], cfg: CfgNode):
     cfg.SOLVER.BASE_LR = parameters['BASE_LR']
     cfg.SOLVER.MAX_ITER = parameters['MAX_ITER']
     cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = parameters['BATCH_SIZE_PER_IMAGE']
+    cfg.INPUT.MIN_SIZE_TRAIN = (parameters['INPUT_MIN_SIZE'],)
     cfg.freeze()
 
     # clean output directory
@@ -98,6 +99,7 @@ def validate(cfg: CfgNode):
     evaluation_results = inference_on_dataset(predictor.model, val_loader, evaluator)
 
     for k, v in evaluation_results["bbox"].items():
+        mlflow.log_metric(f"bbox/{k}", v, step=cfg.SOLVER.MAX_ITER)
         mlflow.log_metric(f"validation/{k}", 100 - v, step=0)
 
     mlflow.end_run()
@@ -125,11 +127,11 @@ def log_best(run: Run, metric: str):
     mlflow.log_metric(f"best_{metric}", best_run.data.metrics[metric])
 
 # Number of start hyperopt evaluations
-MAX_EVALS = 16
+MAX_EVALS = 32
 # Number of new hyperopt evaluations
-INC_MAX_EVALS = 16
+INC_MAX_EVALS = 32
 # Metric to optimize
-METRIC = "validation/AP"
+METRIC = "validation/APm"
 # restore run_id
 RUN_ID = None
 
@@ -140,7 +142,8 @@ space = {
     #'MAX_ITER': hyperopt.hp.uniformint('MAX_ITER', 100, 512),
     'MAX_ITER': hyperopt.hp.uniformint('MAX_ITER', 256, 4096),
     #'BATCH_SIZE_PER_IMAGE': hyperopt.hp.uniformint('BATCH_SIZE_PER_IMAGE', 64, 512)
-    'BATCH_SIZE_PER_IMAGE': hyperopt.hp.uniformint('BATCH_SIZE_PER_IMAGE', 256, 4096)
+    'BATCH_SIZE_PER_IMAGE': hyperopt.hp.uniformint('BATCH_SIZE_PER_IMAGE', 256, 4096),
+    'INPUT_MIN_SIZE': hyperopt.hp.uniformint('INPUT_MIN_SIZE', 100, 800)
 }
 
 def restore_trials():
