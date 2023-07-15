@@ -68,6 +68,7 @@ def train(parameters: dict[str, any], cfg: CfgNode):
     cfg.SOLVER.MAX_ITER = parameters['MAX_ITER']
     cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = parameters['BATCH_SIZE_PER_IMAGE']
     cfg.INPUT.MIN_SIZE_TRAIN = (parameters['INPUT_MIN_SIZE'],)
+    cfg.INPUT.MIN_SIZE_TEST = parameters['INPUT_MIN_SIZE']
     cfg.freeze()
 
     # clean output directory
@@ -102,6 +103,9 @@ def validate(cfg: CfgNode):
         mlflow.log_metric(f"bbox/{k}", v, step=cfg.SOLVER.MAX_ITER)
         mlflow.log_metric(f"validation/{k}", 100 - v, step=0)
 
+    if evaluation_results["bbox"]["AP"] >= 30 and evaluation_results["bbox"]["APm"] >= 15:
+        mlflow.log_artifacts(cfg.OUTPUT_DIR)
+
     mlflow.end_run()
 
     return { f"validation/{k}": 100 - v for k, v in evaluation_results["bbox"].items() }
@@ -127,13 +131,13 @@ def log_best(run: Run, metric: str):
     mlflow.log_metric(f"best_{metric}", best_run.data.metrics[metric])
 
 # Number of start hyperopt evaluations
-MAX_EVALS = 32
+MAX_EVALS = 64
 # Number of new hyperopt evaluations
-INC_MAX_EVALS = 32
+INC_MAX_EVALS = 0
 # Metric to optimize
 METRIC = "validation/APm"
 # restore run_id
-RUN_ID = None
+RUN_ID = "a93171ae8a444c889a4bab543fd3415a"
 
 space = {
     #'IMS_PER_BATCH': hyperopt.hp.uniformint('IMS_PER_BATCH', 1, 2),
@@ -143,7 +147,7 @@ space = {
     'MAX_ITER': hyperopt.hp.uniformint('MAX_ITER', 256, 4096),
     #'BATCH_SIZE_PER_IMAGE': hyperopt.hp.uniformint('BATCH_SIZE_PER_IMAGE', 64, 512)
     'BATCH_SIZE_PER_IMAGE': hyperopt.hp.uniformint('BATCH_SIZE_PER_IMAGE', 256, 4096),
-    'INPUT_MIN_SIZE': hyperopt.hp.uniformint('INPUT_MIN_SIZE', 100, 800)
+    'INPUT_MIN_SIZE': hyperopt.hp.uniformint('INPUT_MIN_SIZE', 100, 950)
 }
 
 def restore_trials():
@@ -152,7 +156,7 @@ def restore_trials():
         with open("trials.hyperopt", "rb") as f:
             trials = pickle.load(f)
             print("Found saved Trials! Loading...")
-            MAX_EVALS = len(trials.trials) + INC_MAX_EVALS
+            MAX_EVALS = (len(trials.trials) + INC_MAX_EVALS if len(trials.trials) >= MAX_EVALS else MAX_EVALS)
             print("Rerunning from {} trials to {} (+{}) trials".format(len(trials.trials), MAX_EVALS, INC_MAX_EVALS))
             return trials
     except:  # create a new trials object and start searching
